@@ -1,0 +1,346 @@
+// ==UserScript==
+// @name         Profil from reactions
+// @namespace    http://tampermonkey.net/
+// @version      2024-02-03
+// @description  try to take over the world!
+// @author       You
+// @match        https://www.linkedin.com/feed/update/urn:li:activity*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=linkedin.com
+// @grant        none
+// ==/UserScript==
+
+(async function() {
+    'use strict';
+
+    const profileLinks = [];
+    const existingLinks = new Set();
+    let csvToExport;
+
+    //create CSV from a an array
+    function createCSV(){
+
+        const profileLinksJSON = JSON.stringify(profileLinks, null, 2);
+        const profileLinksArray = JSON.parse(profileLinksJSON);
+
+        function convertToCSV(array) {
+            const header = Object.keys(array[0]).join(',');
+            const rows = array.map(obj => Object.values(obj).join(','));
+            return header + '\n' + rows.join('\n');
+        }
+        const csvContent = convertToCSV(profileLinksArray);
+
+        csvToExport= new Blob([csvContent], { type: 'text/csv' });
+    }
+
+    //If we have more 8 likes, you need to click to display all user's like
+    function clickSeeMoreButton() {
+        const seeMoreButton = document.querySelector('.social-details-reactors-facepile__reactions-modal-button');
+        if (seeMoreButton) {
+            seeMoreButton.click();
+        } else {
+        }
+    }
+
+
+    // to scroll but not used
+    function scrollToBottom() {
+        const element = document.querySelector('.artdeco-modal__content.social-details-reactors-modal__content.ember-view');
+        element.scrollBy(0, 100);
+    }
+
+    //to extract profil if post have less 7 likes
+    function extractProfileLinks(html) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        const profileElements = doc.querySelectorAll('.social-details-reactors-facepile__profile-link');
+
+        profileElements.forEach((element) => {
+            const profileLink = element.getAttribute('href');
+
+            const captionElement = link.querySelector('.artdeco-entity-lockup__caption');
+            const captionText = captionElement ? captionElement.textContent.trim() : '';
+
+            const titleElement = link.querySelector('.artdeco-entity-lockup__title');
+            const titleText = titleElement ? titleElement.textContent.trim() : ''; //
+
+            if (!existingLinks.has(profileLink)) {
+                profileLinks.push({ title:titleText, link: href, caption: captionText });
+                existingLinks.add(profileLink);
+            }
+        });
+
+        return profileLinks;
+    }
+
+    //to extract profil if post have 8 likes or more
+    function extractProfileLinksOnWindowReaction() {
+        const divElement = document.querySelector('.scaffold-finite-scroll--infinite .scaffold-finite-scroll__content ul');
+
+        if (divElement) {
+            const links = divElement.querySelectorAll('li.full-width a');
+
+            links.forEach(link => {
+                const href = link.getAttribute('href');
+
+                const captionElement = link.querySelector('.artdeco-entity-lockup__caption');
+                const captionText = captionElement ? captionElement.textContent.trim() : '';
+
+                const titleElement = link.querySelector('.artdeco-entity-lockup__title');
+                const titleText = titleElement ? titleElement.textContent.trim() : '';
+
+                if (!existingLinks.has(href)) {
+                    profileLinks.push({ title:titleText, link: href, caption: captionText });
+                    existingLinks.add(href); // Ajoutez le lien à l'ensemble
+                }
+            });
+        } else {
+            console.error('L\'élément div n\'a pas été trouvé.');
+        }
+
+        return profileLinks;
+    }
+
+    //to calculate the number of reaction of
+    function numberOfReaction() {
+        let total = 0;
+        const lastListItem = document.querySelector('.social-details-reactors-facepile__list-item--left');
+        total = document.querySelectorAll('.social-details-reactors-facepile__list-item').length - 1;
+
+        if (lastListItem) {
+            const button = lastListItem.querySelector('.social-details-reactors-facepile__reactions-modal-button');
+            console.log(button);
+            if (button) {
+                const buttonText = button.innerText.trim();               
+
+                if (buttonText.includes("…"))
+                    return -1;
+                const additionalCount = parseInt(buttonText.replace('+', ''), 10) || 0;
+                total += additionalCount;
+            }
+        }
+        return total;
+    }
+
+    // not used
+    function observeAndScroll() {
+        return new Promise(resolve => {
+            const targetNode = document.body;
+
+            const observer = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        observer.disconnect();
+                        resolve();
+                    }
+                });
+            });
+
+            observer.observe(targetNode);
+        });
+    }
+
+    // not use
+    async function scrollPage() {
+        window.scrollTo(0, document.body.scrollHeight);
+        await observeAndScroll();
+    }
+
+    async function clipboard(string) {
+        console.log(string);
+        try {
+            await navigator.clipboard.writeText(string);
+        } catch (err) {
+            console.error('Failed to copy', err);
+        }
+    }
+
+    // Function to get all profile links from the current page
+    async function getAllProfileLinks() {
+        let profileLinks = [];
+        let element;
+        let additionalReactionsCount = numberOfReaction();
+        console.log(additionalReactionsCount);
+
+        if (additionalReactionsCount > 8 || additionalReactionsCount == -1) {
+            clickSeeMoreButton();
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            element = document.querySelector('.artdeco-modal__content.social-details-reactors-modal__content.ember-view');
+            const countElement = document.querySelector('.social-details-reactors-tab__icon-container span.mr1:last-child');
+
+            if (countElement) {             
+                const countText = countElement.textContent.trim();
+                additionalReactionsCount = parseInt(countText, 10);
+
+            } else {
+                console.log("Élément non trouvé");
+            }
+        }
+
+        do {
+            console.log("Scanning for profile links...");
+
+            if (additionalReactionsCount > 8 || additionalReactionsCount == -1) {
+                extractProfileLinksOnWindowReaction();               
+                element.scrollBy(0, 100);
+               
+            } else {
+
+                // Extract profile links from the current content
+                profileLinks = profileLinks.concat(extractProfileLinks(document.body.innerHTML));
+                // Scroll the page to load more content
+                //await scrollPage();
+            }
+
+            // Wait for some time to let the content load
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Adjust the duration as needed
+        } while (document.querySelector('.social-details-reactors-facepile__reactions-modal-button') && existingLinks.size < additionalReactionsCount);
+
+        return profileLinks;
+    }
+
+    // display popop to save CSV file or Send request to n8n for example
+    function displayPopup(text, link) {
+        // Créer un élément div pour la popup
+        const popup = document.createElement('div');
+        popup.className = 'custom-popup';
+        createCSV();
+
+        const csvDownloadLink = document.createElement('a');
+        csvDownloadLink.href = URL.createObjectURL(csvToExport);
+        csvDownloadLink.download = 'profile_links.csv';
+        csvDownloadLink.textContent = 'Télécharger CSV';
+
+        // Ajouter du HTML à la popup avec le texte et le lien
+        popup.innerHTML = `
+        <div class="popup-content">
+            <button class="popup-close-button">X</button>
+            <p>${text}</p>
+            <a href="${link}" target="_blank" rel="noopener noreferrer">Accès au site</a>
+        </div>
+    `;
+          popup.querySelector('.popup-content').appendChild(csvDownloadLink);
+
+
+        // Ajouter du style CSS à la popup
+        const style = document.createElement('style');
+        style.textContent = `
+        .custom-popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 10000;
+        }
+
+        .popup-content {
+            text-align: center;
+        }
+
+        .popup-content p {
+            margin: 0 0 10px;
+        }
+
+        .popup-content a {
+            display: inline-block;
+            padding: 5px 10px;
+            background-color: #3498db;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 3px;
+            transition: background-color 0.3s;
+        }
+
+        .popup-content a:hover {
+            background-color: #2980b9;
+        }
+    `;
+
+        document.body.appendChild(popup);
+        document.head.appendChild(style);
+
+        popup.addEventListener('click', function(event) {
+            if (!event.target.closest('.popup-content')) {
+                popup.remove();
+                style.remove();
+            }
+        });
+
+
+        const closeButton = popup.querySelector('.popup-close-button');
+        closeButton.style.position = 'absolute';
+        closeButton.style.top = '5px';
+        closeButton.style.right = '5px';
+        closeButton.style.border = 'none';
+        closeButton.style.background = 'none';
+        closeButton.style.fontSize = '20px';
+        closeButton.style.cursor = 'pointer';
+        closeButton.addEventListener('click', function() {
+            popup.remove();
+            style.remove();
+        });
+    }
+
+
+
+
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    const extractButton = document.createElement('button');
+    extractButton.textContent = 'Extraire les infos des réactions du post';
+    extractButton.style.position = 'fixed';
+    extractButton.style.bottom = '10px';
+    extractButton.style.left = '10px';
+    extractButton.style.zIndex = '9999';
+    extractButton.style.padding = '10px';
+    extractButton.style.border = 'none';
+    extractButton.style.borderRadius = '5px';
+    extractButton.style.backgroundColor = '#3498db';
+    extractButton.style.color = '#fff';
+    extractButton.style.cursor = 'pointer';
+    extractButton.style.fontFamily = 'Arial, sans-serif';
+
+    document.body.appendChild(extractButton);
+
+    extractButton.addEventListener('click', async () => {
+
+        const userId = localStorage.getItem('userId');
+        if (!userId) {
+            // Si l'identifiant n'est pas enregistré, demander à l'utilisateur de le saisir
+            const userIdInput = prompt('Veuillez entrer votre identifiant:');
+            if (userIdInput) {
+                // Enregistrer l'identifiant dans le stockage local
+                localStorage.setItem('userId', userIdInput);
+                console.log('Identifiant enregistré avec succès dans le stockage local.');
+            } else {
+                console.log('Aucun identifiant n\'a été saisi. Le traitement est annulé.');
+                return;
+            }
+        } else {
+            console.log('Identifiant trouvé dans le stockage local:', userId);
+        }
+
+        await getAllProfileLinks();
+        const linksArray = Array.from(profileLinks);  
+        const linksString = JSON.stringify(profileLinks, null, 2);//linksArray.join('\n');
+        const textarea = document.createElement('textarea');
+        textarea.value = linksString;
+
+        document.body.appendChild(textarea);
+        textarea.select();
+        //document.execCommand('copy');
+
+        clipboard(linksString);
+
+        document.body.removeChild(textarea);
+
+        console.log('Liens copiés dans le presse-papiers:', linksString);
+        displayPopup("Les profils ont été copiés dans le presse-papiers ! Vous n'avez plus qu'à cliquer sur le lien pour copier et envoyer ces informations vers n8n ou télécharger le csv", "https://n8n.prod-n8n.omvpb.ovh/webhook/38fd5f32-aed6-4abc-801c-1756077b6ef7");
+    });
+
+})();
