@@ -1,0 +1,256 @@
+// ==UserScript==
+// @name         Profil info
+// @namespace    http://tampermonkey.net/
+// @version      2024-02-03
+// @description  try to take over the world!
+// @author       You
+// @match        https://www.linkedin.com/in/*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=linkedin.com
+// @grant        none
+// ==/UserScript==
+
+(async function() {
+    'use strict';
+// Function to extract profile links from the given HTML
+    const profileLinks = [];
+    let csvToExport;
+
+    async function clipboard(string) {
+        console.log(string);
+        try {
+            await navigator.clipboard.writeText(string);
+        } catch (err) {
+            console.error('Failed to copy', err);
+        }
+    }
+
+    //create CSV from a an array
+    function createCSV(){
+
+        const profileLinksJSON = JSON.stringify(profileLinks, null, 2);
+        const profileLinksArray = JSON.parse(profileLinksJSON);
+
+        function convertToCSV(array) {
+            const header = Object.keys(array[0]).join(',');
+            const rows = array.map(obj => Object.values(obj).join(','));
+            return header + '\n' + rows.join('\n');
+        }
+        const csvContent = convertToCSV(profileLinksArray);
+
+        csvToExport= new Blob([csvContent], { type: 'text/csv' });
+    }
+
+    // display popop to save CSV file or Send request to n8n for example
+    function displayPopup(text, link) {
+        // Créer un élément div pour la popup
+        const popup = document.createElement('div');
+        popup.className = 'custom-popup';
+        createCSV();
+
+        const csvDownloadLink = document.createElement('a');
+        csvDownloadLink.href = URL.createObjectURL(csvToExport);
+        csvDownloadLink.download = 'profile_links.csv';
+        csvDownloadLink.textContent = 'Télécharger CSV';
+
+        // Ajouter du HTML à la popup avec le texte et le lien
+        popup.innerHTML = `
+        <div class="popup-content">
+            <button class="popup-close-button">X</button>
+            <p>${text}</p>
+            <a href="${link}" target="_blank" rel="noopener noreferrer">Accès au site</a>
+        </div>
+    `;
+        popup.querySelector('.popup-content').appendChild(csvDownloadLink);
+
+
+        // Ajouter du style CSS à la popup
+        const style = document.createElement('style');
+        style.textContent = `
+        .custom-popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 10000;
+        }
+
+        .popup-content {
+            text-align: center;
+        }
+
+        .popup-content p {
+            margin: 0 0 10px;
+        }
+
+        .popup-content a {
+            display: inline-block;
+            padding: 5px 10px;
+            background-color: #3498db;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 3px;
+            transition: background-color 0.3s;
+        }
+
+        .popup-content a:hover {
+            background-color: #2980b9;
+        }
+    `;
+
+        document.body.appendChild(popup);
+        document.head.appendChild(style);
+
+        popup.addEventListener('click', function(event) {
+            if (!event.target.closest('.popup-content')) {
+                popup.remove();
+                style.remove();
+            }
+        });
+
+
+        const closeButton = popup.querySelector('.popup-close-button');
+        closeButton.style.position = 'absolute';
+        closeButton.style.top = '5px';
+        closeButton.style.right = '5px';
+        closeButton.style.border = 'none';
+        closeButton.style.background = 'none';
+        closeButton.style.fontSize = '20px';
+        closeButton.style.cursor = 'pointer';
+        closeButton.addEventListener('click', function() {
+            popup.remove();
+            style.remove();
+        });
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    const extractButton = document.createElement('button');
+    extractButton.textContent = 'Récupérer info profil';
+
+    extractButton.style.position = 'fixed';
+    extractButton.style.bottom = '10px';
+    extractButton.style.left = '10px';
+    extractButton.style.zIndex = '9999';
+    extractButton.style.padding = '10px';
+    extractButton.style.border = 'none';
+    extractButton.style.borderRadius = '5px';
+    extractButton.style.backgroundColor = '#3498db';
+    extractButton.style.color = '#fff';
+    extractButton.style.cursor = 'pointer';
+    extractButton.style.fontFamily = 'Arial, sans-serif';
+
+    // Ajouter le bouton au corps de la page
+    document.body.appendChild(extractButton);
+
+    // Ajouter un gestionnaire d'événements au bouton
+    extractButton.addEventListener('click', async () => {
+
+        let infosProfil="";
+
+
+        const infoSection = document.querySelector('div.mt2.relative');
+
+        if (infoSection) {
+            // Récupérer le lieu
+            const locationElement = infoSection.querySelector('div.yCmVuAzHAgewBzYWiiJukdwWUigpTIpU.mt2 span.text-body-small');
+            const location = locationElement ? locationElement.innerText.trim() : '';
+            profileLinks.push({ lieu:location });
+
+        } else {
+            console.log("La section des informations générales n'a pas été trouvée.");
+        }
+
+        // Récupérer l'élément contenant le nombre d'abonnés
+        const followersList = document.querySelector('ul.BTptGlJHoxexNcVvlcWSopmOieCYhgxQIFGkE');
+
+        if (followersList) {
+            const listItems = followersList.querySelectorAll('li.text-body-small');
+
+            listItems.forEach(item => {
+                const followersText = item.innerText;
+                if (followersText.includes('abonnés')) {
+                    profileLinks.push({ abonnee:followersText });
+                }
+            });
+        } else {
+            console.log("La liste des abonnés n'a pas été trouvée.");
+        }
+
+        const profileContainer = document.querySelector('div.mt2.relative');
+
+        if (profileContainer) {
+            const breakWordsElements = profileContainer.querySelectorAll('.break-words');
+
+            breakWordsElements.forEach(element => {
+                const text = element.innerText.trim();
+                infosProfil=infosProfil+" "+text;
+            });
+        } else {
+            console.log("Le conteneur du profil n'a pas été trouvé.");
+        }
+
+        profileLinks.push({ infosProfil:infosProfil });
+
+
+        const coordinatesLink = document.getElementById('top-card-text-details-contact-info');
+        const regex = /^Profil de (.+)$/;
+
+        if (coordinatesLink) {
+            coordinatesLink.click();
+
+            setTimeout(() => {
+                const contactSections = document.querySelectorAll('.pv-contact-info__contact-type');
+
+                contactSections.forEach(section => {
+                    // Récupérer le titre de la section (Profil, Téléphone, E-mail, etc.)
+                    const titleElement = section.querySelector('.pv-contact-info__header');
+                    const title = titleElement ? titleElement.innerText.trim() : '';
+
+                    // Récupérer les informations spécifiques en fonction du titre
+                    let data = '';
+                    if (title === 'Téléphone') {
+                        // Récupérer les données en fonction du type de section
+                        const dataElement = section.querySelector('.pv-contact-info__ci-container');
+                        data = dataElement ? dataElement.innerText.trim() : '';
+                        profileLinks.push({ tel:data });
+                    }
+
+                    if ( title.match(regex) ) {
+                        // Récupérer les données en fonction du type de section
+                        const dataElement = section.querySelector('.pv-contact-info__ci-container');
+                        data = dataElement ? dataElement.innerText.trim() : '';
+                        profileLinks.push({ profil:data });
+                    }
+
+                    if ( title === 'E-mail') {
+                        // Récupérer les données en fonction du type de section
+                        const dataElement = section.querySelector('.pv-contact-info__ci-container');
+                        data = dataElement ? dataElement.innerText.trim() : '';
+                        profileLinks.push({ mail:data });
+                    }
+
+                });
+
+                const linksArray = Array.from(profileLinks);
+                const linksString = JSON.stringify(profileLinks, null, 2);//linksArray.join('\n');
+                const textarea = document.createElement('textarea');
+                textarea.value = linksString;
+
+                document.body.appendChild(textarea);
+                textarea.select();
+
+                clipboard(linksString);
+                displayPopup("Les informations du profils ont été copiés dans le presse-papiers ! Vous n'avez plus qu'à cliquer sur le lien pour copier et envoyer ces informations vers n8n ou télécharger le csv", "https://n8n.prod-n8n.omvpb.ovh/webhook/38fd5f32-aed6-4abc-801c-1756077b6ef7");
+
+            }, 1000);
+        } else {
+            console.log("Le lien 'Coordonnées' n'a pas été trouvé.");
+        }
+    });
+
+})();
